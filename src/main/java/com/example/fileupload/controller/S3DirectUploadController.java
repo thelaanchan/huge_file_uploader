@@ -57,3 +57,4 @@ public class S3DirectUploadController {
         return ResponseEntity.ok(Map.of("key", key, "downloadUrl", downloadUrl));
     }
 }
+

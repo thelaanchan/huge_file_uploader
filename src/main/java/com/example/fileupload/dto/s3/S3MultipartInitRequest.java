@@ -17,3 +17,4 @@ public record S3MultipartInitRequest(
         @Positive(message = "Part size must be positive")
         Integer partSize
 ) {}
+

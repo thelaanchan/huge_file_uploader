@@ -6,3 +6,4 @@ public record S3SingleUploadInitResponse(
         String bucket,
         long expiresInMinutes
 ) {}
+

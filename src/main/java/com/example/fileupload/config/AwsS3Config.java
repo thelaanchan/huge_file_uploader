@@ -60,3 +60,4 @@ public class AwsS3Config {
         return builder.build();
     }
 }
+

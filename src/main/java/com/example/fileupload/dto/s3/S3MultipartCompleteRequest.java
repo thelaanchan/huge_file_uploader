@@ -16,3 +16,4 @@ public record S3MultipartCompleteRequest(
         @Valid
         List<S3PartDto> parts
 ) {}
+

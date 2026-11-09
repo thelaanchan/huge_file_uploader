@@ -57,3 +57,4 @@ class S3DirectUploadServiceTest {
         assertTrue(downloadUrl.contains(key));
     }
 }
+
