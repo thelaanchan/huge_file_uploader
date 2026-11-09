@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Resumable Huge File Upload API",
-    "description": "Postman collection to test fault-tolerant resumable file uploads (1GB - 10GB+) into MySQL with Spring Boot.",
+    "name": "Huge File Upload Service",
+    "description": "Collection to test MySQL Resumable Upload and S3 Direct Browser-to-Storage Presigned Upload.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,133 +14,323 @@
       "key": "fileId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "s3UploadId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "s3Key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "s3PartUrl",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "1. Init or Resume Upload",
-      "event": [
+      "name": "MySQL Resumable Upload",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "if (pm.response.code === 200) {",
-              "    var jsonData = pm.response.json();",
-              "    pm.collectionVariables.set('fileId', jsonData.fileId);",
-              "    console.log('Set fileId variable to: ' + jsonData.fileId);",
-              "}"
+          "name": "1. Init or Resume Upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var data = pm.response.json();",
+                  "    pm.collectionVariables.set('fileId', data.fileId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
-            "type": "text/javascript"
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"dataset.iso\",\n  \"fileSize\": 15728640,\n  \"contentType\": \"application/octet-stream\",\n  \"chunkSize\": 5242880,\n  \"fileIdentifier\": \"dataset_15728640\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/files/init",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files", "init"]
+            }
+          }
+        },
+        {
+          "name": "2. Upload Chunk",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "chunkIndex",
+                  "value": "0",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file"
+                },
+                {
+                  "key": "checksum",
+                  "value": "",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/files/{{fileId}}/chunks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files", "{{fileId}}", "chunks"]
+            }
+          }
+        },
+        {
+          "name": "3. Get Upload Status (Resume Point)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/files/{{fileId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files", "{{fileId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "4. Download File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/files/{{fileId}}/download",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files", "{{fileId}}", "download"]
+            }
+          }
+        },
+        {
+          "name": "5. List Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/files",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files"]
+            }
+          }
+        },
+        {
+          "name": "6. Delete File",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/files/{{fileId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "files", "{{fileId}}"]
+            }
           }
         }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"fileName\": \"my_huge_file.zip\",\n  \"fileSize\": 15728640,\n  \"contentType\": \"application/zip\",\n  \"chunkSize\": 5242880,\n  \"fileIdentifier\": \"my_huge_file_15728640_v1\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/files/init",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files", "init"]
-        },
-        "description": "Registers file upload or detects an existing upload to resume. Automatically saves returned fileId to collection variable."
-      }
+      ]
     },
     {
-      "name": "2. Upload Chunk",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "body": {
-          "mode": "formdata",
-          "formdata": [
+      "name": "S3 Direct Browser Upload",
+      "item": [
+        {
+          "name": "1. Initiate S3 Multipart Upload",
+          "event": [
             {
-              "key": "chunkIndex",
-              "value": "0",
-              "type": "text",
-              "description": "0-based chunk sequence index (0, 1, 2, ...)"
-            },
-            {
-              "key": "file",
-              "type": "file",
-              "description": "Binary chunk file slice (e.g. 5 MB slice)"
-            },
-            {
-              "key": "checksum",
-              "value": "",
-              "type": "text",
-              "description": "Optional MD5 hex string for integrity validation"
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var data = pm.response.json();",
+                  "    pm.collectionVariables.set('s3UploadId', data.uploadId);",
+                  "    pm.collectionVariables.set('s3Key', data.key);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
             }
-          ]
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"massive_backup.tar.gz\",\n  \"fileSize\": 10737418240,\n  \"contentType\": \"application/gzip\",\n  \"partSize\": 10485760\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/multipart/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "multipart", "initiate"]
+            },
+            "description": "Calls S3 CreateMultipartUpload. Returns uploadId, key, and totalParts without receiving any file bytes."
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/api/files/{{fileId}}/chunks",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files", "{{fileId}}", "chunks"]
+        {
+          "name": "2. Get Presigned URL for Part",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var data = pm.response.json();",
+                  "    pm.collectionVariables.set('s3PartUrl', data.presignedUrl);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uploadId\": \"{{s3UploadId}}\",\n  \"key\": \"{{s3Key}}\",\n  \"partNumber\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/multipart/part-url",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "multipart", "part-url"]
+            },
+            "description": "Generates a time-limited presigned PUT URL for partNumber. Client uploads directly to this S3 URL."
+          }
         },
-        "description": "Uploads and persists a single chunk (~5MB) into MySQL LONGBLOB."
-      }
-    },
-    {
-      "name": "3. Check Upload Status (Query Resume Point)",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/files/{{fileId}}/status",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files", "{{fileId}}", "status"]
+        {
+          "name": "3. Direct Upload to S3 (PUT Binary)",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": ""
+              }
+            },
+            "url": {
+              "raw": "{{s3PartUrl}}",
+              "host": ["{{s3PartUrl}}"]
+            },
+            "description": "Direct HTTP PUT from browser/client to Amazon S3. Zero bytes flow through your backend! S3 returns the ETag header."
+          }
         },
-        "description": "Inspects which chunks are already committed in MySQL and returns nextChunkIndex so the client knows exactly where to resume."
-      }
-    },
-    {
-      "name": "4. Download / Stream File from MySQL",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/files/{{fileId}}/download",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files", "{{fileId}}", "download"]
+        {
+          "name": "4. Complete S3 Multipart Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uploadId\": \"{{s3UploadId}}\",\n  \"key\": \"{{s3Key}}\",\n  \"parts\": [\n    {\n      \"partNumber\": 1,\n      \"eTag\": \"\\\"sample-etag-from-s3\\\"\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/multipart/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "multipart", "complete"]
+            },
+            "description": "Tells S3 to assemble the uploaded parts into the complete final file."
+          }
         },
-        "description": "Streams reconstructed file sequentially from MySQL without loading into RAM. Click 'Send and Download' in Postman."
-      }
-    },
-    {
-      "name": "5. List All Files",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/files",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files"]
+        {
+          "name": "5. Abort S3 Multipart Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uploadId\": \"{{s3UploadId}}\",\n  \"key\": \"{{s3Key}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/multipart/abort",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "multipart", "abort"]
+            },
+            "description": "Cancels an in-progress multipart upload and discards stored parts on S3."
+          }
         },
-        "description": "Lists all files stored in the MySQL database along with their upload status and chunk count."
-      }
-    },
-    {
-      "name": "6. Delete File",
-      "request": {
-        "method": "DELETE",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/files/{{fileId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "files", "{{fileId}}"]
+        {
+          "name": "6. Single File Presigned Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fileName\": \"profile_picture.png\",\n  \"contentType\": \"image/png\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/presigned-url",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "presigned-url"]
+            },
+            "description": "Generates a single presigned PUT URL for direct browser upload of standard-sized files (< 100MB)."
+          }
         },
-        "description": "Deletes the file metadata and all associated chunk rows from MySQL."
-      }
+        {
+          "name": "7. Get Presigned Download URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/s3/download-url?key={{s3Key}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "s3", "download-url"],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{s3Key}}"
+                }
+              ]
+            },
+            "description": "Generates a secure, temporary presigned GET URL to download the private file from S3."
+          }
+        }
+      ]
     }
   ]
 }
-

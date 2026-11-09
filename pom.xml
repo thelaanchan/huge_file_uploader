@@ -47,6 +47,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- AWS S3 SDK for direct presigned uploads -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.29.51</version>
+        </dependency>
+
 
 
         <!-- Testing -->
