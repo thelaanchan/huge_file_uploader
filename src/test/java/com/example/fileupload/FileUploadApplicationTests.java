@@ -23,6 +23,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 class FileUploadApplicationTests {
 
+    static {
+        com.example.fileupload.config.EnvLoader.load();
+    }
+
     @Autowired
     private FileUploadService fileUploadService;
 

@@ -83,25 +83,44 @@ This project solves the problem with a **Chunked Relational Storage** pattern:
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration (.env & .env.example)
 
-Application settings are located in [`src/main/resources/application.properties`](src/main/resources/application.properties):
+Sensitive credentials (MySQL password, host, user) are separated into a **[`.env`](.env)** file that is **automatically ignored** by `.gitignore` so your private credentials are never exposed on GitHub.
 
-```properties
-server.port=8080
+A template **[`.env.example`](.env.example)** is provided for team members or CI/CD deployments:
 
-# MySQL Database
-spring.datasource.url=jdbc:mysql://localhost:3306/fileupload_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8
-spring.datasource.username=root
-spring.datasource.password=5646
-
-# Multipart chunk limit (per request)
-spring.servlet.multipart.max-file-size=50MB
-spring.servlet.multipart.max-request-size=50MB
-
-# Default chunk size: 5 MB (5,242,880 bytes)
-app.upload.default-chunk-size=5242880
+```bash
+# Copy template to .env
+cp .env.example .env
 ```
+
+Contents of `.env`:
+```properties
+SERVER_PORT=8080
+
+# MySQL Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=fileupload_db
+DB_USERNAME=root
+DB_PASSWORD=5646
+
+# Upload Configuration
+MAX_FILE_SIZE=50MB
+MAX_REQUEST_SIZE=50MB
+DEFAULT_CHUNK_SIZE=5242880
+```
+
+---
+
+## 📮 Testing with Postman
+
+A pre-configured **[Postman Collection (`postman_collection.json`)](postman_collection.json)** is included in the project root:
+
+1. Open **Postman**.
+2. Click **Import** (top left).
+3. Select or drag-and-drop [`postman_collection.json`](postman_collection.json).
+4. The collection contains all 6 endpoints with dynamic variables (`{{baseUrl}}`, `{{fileId}}`) and automatic test scripts!
 
 ---
 
@@ -289,3 +308,4 @@ git remote add origin https://github.com/USERNAME/REPO.git
 # 6. Push code to GitHub
 git push -u origin main
 ```
+

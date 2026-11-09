@@ -47,6 +47,10 @@ out/
 # Log files
 *.log
 
+# Environment Variables
+.env
+!.env.example
+
 # Temporary test files
 *.tmp
 sample_test_*.bin

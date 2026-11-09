@@ -1,0 +1,145 @@
+{
+  "info": {
+    "name": "Resumable Huge File Upload API",
+    "description": "Postman collection to test fault-tolerant resumable file uploads (1GB - 10GB+) into MySQL with Spring Boot.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "fileId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Init or Resume Upload",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    var jsonData = pm.response.json();",
+              "    pm.collectionVariables.set('fileId', jsonData.fileId);",
+              "    console.log('Set fileId variable to: ' + jsonData.fileId);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fileName\": \"my_huge_file.zip\",\n  \"fileSize\": 15728640,\n  \"contentType\": \"application/zip\",\n  \"chunkSize\": 5242880,\n  \"fileIdentifier\": \"my_huge_file_15728640_v1\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/files/init",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files", "init"]
+        },
+        "description": "Registers file upload or detects an existing upload to resume. Automatically saves returned fileId to collection variable."
+      }
+    },
+    {
+      "name": "2. Upload Chunk",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "chunkIndex",
+              "value": "0",
+              "type": "text",
+              "description": "0-based chunk sequence index (0, 1, 2, ...)"
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "description": "Binary chunk file slice (e.g. 5 MB slice)"
+            },
+            {
+              "key": "checksum",
+              "value": "",
+              "type": "text",
+              "description": "Optional MD5 hex string for integrity validation"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/files/{{fileId}}/chunks",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files", "{{fileId}}", "chunks"]
+        },
+        "description": "Uploads and persists a single chunk (~5MB) into MySQL LONGBLOB."
+      }
+    },
+    {
+      "name": "3. Check Upload Status (Query Resume Point)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/files/{{fileId}}/status",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files", "{{fileId}}", "status"]
+        },
+        "description": "Inspects which chunks are already committed in MySQL and returns nextChunkIndex so the client knows exactly where to resume."
+      }
+    },
+    {
+      "name": "4. Download / Stream File from MySQL",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/files/{{fileId}}/download",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files", "{{fileId}}", "download"]
+        },
+        "description": "Streams reconstructed file sequentially from MySQL without loading into RAM. Click 'Send and Download' in Postman."
+      }
+    },
+    {
+      "name": "5. List All Files",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/files",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files"]
+        },
+        "description": "Lists all files stored in the MySQL database along with their upload status and chunk count."
+      }
+    },
+    {
+      "name": "6. Delete File",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/files/{{fileId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "files", "{{fileId}}"]
+        },
+        "description": "Deletes the file metadata and all associated chunk rows from MySQL."
+      }
+    }
+  ]
+}
