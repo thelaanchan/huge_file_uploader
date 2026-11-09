@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resumable Huge File Upload (1GB - 10GB+)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="logo-icon">⚡</div>
+                <div>
+                    <h1>Huge File Resumable Uploader</h1>
+                    <p class="subtitle">Stream multi-gigabyte files (1GB - 10GB+) into MySQL with auto-resume</p>
+                </div>
+            </div>
+            <div class="badge-status">
+                <span class="pulse-indicator"></span>
+                <span>MySQL Connected</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Upload Box Card -->
+            <section class="card upload-card">
+                <h2>Upload Huge File</h2>
+                <p class="section-desc">Files are split into chunks, streamed, and stored safely into MySQL database chunks. If interrupted, upload seamlessly resumes from the last successfully saved chunk.</p>
+
+                <!-- Dropzone -->
+                <div class="dropzone" id="dropzone">
+                    <input type="file" id="fileInput" class="file-input">
+                    <div class="dropzone-content">
+                        <div class="upload-icon">📁</div>
+                        <p class="dropzone-prompt"><strong>Click to choose a file</strong> or drag & drop here</p>
+                        <p class="dropzone-hint">Supports huge files (1GB, 5GB, 10GB+). Upload never restarts from zero on connection drop.</p>
+                    </div>
+                </div>
+
+                <!-- Selected File Info -->
+                <div id="fileInfoPanel" class="file-info-panel hidden">
+                    <div class="file-meta">
+                        <span class="file-name" id="displayFileName">filename.dat</span>
+                        <span class="file-size" id="displayFileSize">0 MB</span>
+                    </div>
+
+                    <div class="chunk-config">
+                        <label for="chunkSizeSelect">Chunk Size:</label>
+                        <select id="chunkSizeSelect">
+                            <option value="2097152">2 MB (Faster resume granularity)</option>
+                            <option value="5242880" selected>5 MB (Recommended default)</option>
+                            <option value="10485760">10 MB (High speed for fast LAN)</option>
+                            <option value="20971520">20 MB</option>
+                        </select>
+                        <span id="totalChunksEstimated" class="total-chunks-hint">Estimated chunks: 0</span>
+                    </div>
+
+                    <!-- Progress Section -->
+                    <div id="progressSection" class="progress-section hidden">
+                        <div class="progress-header">
+                            <span id="statusLabel" class="status-badge status-idle">Ready</span>
+                            <span id="percentageLabel" class="percentage-label">0%</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="progressBar" class="progress-bar" style="width: 0%;"></div>
+                        </div>
+                        <div class="progress-stats">
+                            <div><span class="stat-label">Transferred:</span> <span id="transferredBytesLabel">0 B</span> / <span id="totalBytesLabel">0 B</span></div>
+                            <div><span class="stat-label">Chunks:</span> <span id="chunksProgressLabel">0 / 0</span></div>
+                            <div><span class="stat-label">Speed:</span> <span id="speedLabel">0 MB/s</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Controls -->
+                    <div class="action-buttons">
+                        <button id="startBtn" class="btn btn-primary">Start Upload</button>
+                        <button id="pauseBtn" class="btn btn-warning hidden">Pause / Simulate Failure</button>
+                        <button id="resumeBtn" class="btn btn-success hidden">Resume Upload</button>
+                        <button id="cancelBtn" class="btn btn-secondary hidden">Cancel</button>
+                    </div>
+
+                    <!-- Logs / Diagnostics -->
+                    <div class="log-container">
+                        <div class="log-header">
+                            <span>Activity & Resume Diagnostics</span>
+                            <button id="clearLogBtn" class="btn-text">Clear</button>
+                        </div>
+                        <div id="logConsole" class="log-console">
+                            <div class="log-entry info">[System] Ready to upload. Select a file to begin.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Uploaded Files Section -->
+            <section class="card files-card">
+                <div class="card-header-flex">
+                    <h2>Files in MySQL Database</h2>
+                    <button id="refreshFilesBtn" class="btn btn-outline">🔄 Refresh</button>
+                </div>
+                <div class="table-container">
+                    <table class="files-table">
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Total Size</th>
+                                <th>Chunks in DB</th>
+                                <th>Status</th>
+                                <th>Uploaded At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="filesTableBody">
+                            <tr>
+                                <td colspan="6" class="text-center empty-state">No files uploaded yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>Spring Boot 3.4 &bull; MySQL 8+ &bull; Fault-Tolerant Chunked Persistence &bull; Low Memory Footprint</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
