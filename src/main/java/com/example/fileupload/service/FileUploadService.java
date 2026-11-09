@@ -17,7 +17,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class FileUploadService {
@@ -28,7 +27,7 @@ public class FileUploadService {
     private final FileChunkRepository fileChunkRepository;
 
     @Value("${app.upload.default-chunk-size:5242880}")
-    private int defaultChunkSize; // 5 MB
+    private int defaultChunkSize;
 
     public FileUploadService(FileMetadataRepository fileMetadataRepository,
                              FileChunkRepository fileChunkRepository) {
@@ -36,25 +35,18 @@ public class FileUploadService {
         this.fileChunkRepository = fileChunkRepository;
     }
 
-    /**
-     * Initializes a new upload or detects an existing upload to resume.
-     */
     @Transactional
     public FileInitResponse initOrResumeUpload(FileInitRequest request) {
-        int chunkSize = (request.getChunkSize() != null && request.getChunkSize() > 0)
-                ? request.getChunkSize()
+        int chunkSize = (request.chunkSize() != null && request.chunkSize() > 0)
+                ? request.chunkSize()
                 : defaultChunkSize;
 
-        long fileSize = request.getFileSize();
-        int totalChunks = (int) Math.ceil((double) fileSize / chunkSize);
-        if (totalChunks == 0) {
-            totalChunks = 1;
-        }
+        long fileSize = request.fileSize();
+        int totalChunks = Math.max(1, (int) Math.ceil((double) fileSize / chunkSize));
 
-        String identifier = request.getFileIdentifier();
-        if (identifier == null || identifier.trim().isEmpty()) {
-            identifier = request.getFileName() + "_" + fileSize;
-        }
+        String identifier = (request.fileIdentifier() != null && !request.fileIdentifier().isBlank())
+                ? request.fileIdentifier().trim()
+                : request.fileName() + "_" + fileSize;
 
         Optional<FileMetadata> existingOpt = fileMetadataRepository.findByFileIdentifier(identifier);
 
@@ -71,8 +63,7 @@ public class FileUploadService {
                 fileMetadataRepository.save(existing);
             }
 
-            log.info("Resuming file upload for identifier: '{}', fileId: '{}', uploaded chunks: {}/{}",
-                    identifier, existing.getId(), uploadedChunks.size(), existing.getTotalChunks());
+            log.info("Found existing upload {} ({}/{} chunks)", existing.getId(), uploadedChunks.size(), existing.getTotalChunks());
 
             return new FileInitResponse(
                     existing.getId(),
@@ -85,22 +76,19 @@ public class FileUploadService {
                     uploadedChunks,
                     nextChunkIndex,
                     true,
-                    isComplete
-                            ? "File has already been completely uploaded."
-                            : "Resuming existing upload from chunk " + (nextChunkIndex == -1 ? 0 : nextChunkIndex)
+                    isComplete ? "File upload already completed." : "Resuming from chunk " + (nextChunkIndex == -1 ? 0 : nextChunkIndex)
             );
         }
 
-        // New upload
         String fileId = UUID.randomUUID().toString();
-        String contentType = request.getContentType() != null && !request.getContentType().isBlank()
-                ? request.getContentType()
+        String contentType = (request.contentType() != null && !request.contentType().isBlank())
+                ? request.contentType()
                 : "application/octet-stream";
 
         FileMetadata metadata = new FileMetadata(
                 fileId,
                 identifier,
-                request.getFileName(),
+                request.fileName(),
                 fileSize,
                 contentType,
                 chunkSize,
@@ -109,56 +97,46 @@ public class FileUploadService {
         );
 
         fileMetadataRepository.save(metadata);
-
-        log.info("Initialized new file upload: fileId='{}', name='{}', size={} bytes, totalChunks={}",
-                fileId, request.getFileName(), fileSize, totalChunks);
+        log.info("Created upload {} for '{}' ({} bytes, {} chunks)", fileId, request.fileName(), fileSize, totalChunks);
 
         return new FileInitResponse(
                 fileId,
                 identifier,
-                request.getFileName(),
+                request.fileName(),
                 fileSize,
                 chunkSize,
                 totalChunks,
                 UploadStatus.INITIALIZED,
-                Collections.emptyList(),
+                List.of(),
                 0,
                 false,
-                "File upload initialized successfully. Ready to receive chunks starting at index 0."
+                "Ready to receive chunks."
         );
     }
 
-    /**
-     * Uploads and stores a single chunk into MySQL. Commits per chunk.
-     */
     @Transactional
     public ChunkUploadResponse uploadChunk(String fileId, int chunkIndex, MultipartFile file, String expectedChecksum)
             throws IOException {
 
         FileMetadata metadata = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File upload not found with ID: " + fileId));
+                .orElseThrow(() -> new IllegalArgumentException("Upload not found: " + fileId));
 
         if (chunkIndex < 0 || chunkIndex >= metadata.getTotalChunks()) {
-            throw new IllegalArgumentException(String.format(
-                    "Invalid chunk index %d. Valid range is 0 to %d.", chunkIndex, metadata.getTotalChunks() - 1));
+            throw new IllegalArgumentException("Chunk index out of bounds: " + chunkIndex);
         }
 
         byte[] chunkBytes = file.getBytes();
         if (chunkBytes.length == 0) {
-            throw new IllegalArgumentException("Chunk payload cannot be empty.");
+            throw new IllegalArgumentException("Empty chunk payload received");
         }
 
-        // Integrity verification if client supplied expectedChecksum
         String actualChecksum = DigestUtils.md5DigestAsHex(chunkBytes);
         if (expectedChecksum != null && !expectedChecksum.isBlank()) {
             if (!actualChecksum.equalsIgnoreCase(expectedChecksum.trim())) {
-                throw new IllegalArgumentException(String.format(
-                        "Checksum verification failed for chunk %d! Expected: %s, Actual: %s",
-                        chunkIndex, expectedChecksum, actualChecksum));
+                throw new IllegalArgumentException("MD5 checksum mismatch on chunk " + chunkIndex);
             }
         }
 
-        // Save or update chunk (Idempotent: handles retry smoothly)
         Optional<FileChunk> existingChunk = fileChunkRepository.findByFileIdAndChunkIndex(fileId, chunkIndex);
         if (existingChunk.isPresent()) {
             FileChunk chunk = existingChunk.get();
@@ -166,15 +144,10 @@ public class FileUploadService {
             chunk.setChunkData(chunkBytes);
             chunk.setChecksum(actualChecksum);
             fileChunkRepository.save(chunk);
-            log.info("Updated existing chunk {} for fileId {}", chunkIndex, fileId);
         } else {
-            FileChunk chunk = new FileChunk(fileId, chunkIndex, chunkBytes.length, chunkBytes, actualChecksum);
-            fileChunkRepository.save(chunk);
-            log.info("Persisted chunk {}/{} ({} bytes) for fileId {}",
-                    chunkIndex, metadata.getTotalChunks() - 1, chunkBytes.length, fileId);
+            fileChunkRepository.save(new FileChunk(fileId, chunkIndex, chunkBytes.length, chunkBytes, actualChecksum));
         }
 
-        // Update metadata status to UPLOADING if currently INITIALIZED
         if (metadata.getStatus() == UploadStatus.INITIALIZED) {
             metadata.setStatus(UploadStatus.UPLOADING);
             fileMetadataRepository.save(metadata);
@@ -186,10 +159,10 @@ public class FileUploadService {
         if (isCompleted) {
             metadata.setStatus(UploadStatus.COMPLETED);
             fileMetadataRepository.save(metadata);
-            log.info("File upload COMPLETED for fileId '{}', total chunks: {}", fileId, uploadedCount);
+            log.info("Upload completed for {}", fileId);
         }
 
-        double progress = (uploadedCount * 100.0) / metadata.getTotalChunks();
+        double progress = Math.round(((uploadedCount * 100.0) / metadata.getTotalChunks()) * 100.0) / 100.0;
 
         return new ChunkUploadResponse(
                 fileId,
@@ -197,38 +170,27 @@ public class FileUploadService {
                 chunkBytes.length,
                 metadata.getTotalChunks(),
                 uploadedCount,
-                Math.round(progress * 100.0) / 100.0,
+                progress,
                 isCompleted,
                 metadata.getStatus(),
-                isCompleted ? "All chunks uploaded. File is complete!" : "Chunk " + chunkIndex + " uploaded successfully."
+                isCompleted ? "Upload finished." : "Chunk " + chunkIndex + " saved."
         );
     }
 
-    /**
-     * Retrieves current status and list of uploaded chunks for resuming.
-     */
     @Transactional(readOnly = true)
     public FileStatusResponse getFileStatus(String fileId) {
         FileMetadata metadata = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File upload not found with ID: " + fileId));
+                .orElseThrow(() -> new IllegalArgumentException("Upload not found: " + fileId));
 
         List<Integer> uploadedChunks = fileChunkRepository.findChunkIndicesByFileId(fileId);
         int nextChunkIndex = findNextMissingChunkIndex(uploadedChunks, metadata.getTotalChunks());
 
-        long estimatedUploadedBytes = 0;
         int count = uploadedChunks.size();
-        if (count > 0) {
-            if (count == metadata.getTotalChunks()) {
-                estimatedUploadedBytes = metadata.getFileSize();
-            } else {
-                estimatedUploadedBytes = (long) count * metadata.getChunkSize();
-                if (estimatedUploadedBytes > metadata.getFileSize()) {
-                    estimatedUploadedBytes = metadata.getFileSize();
-                }
-            }
-        }
+        long bytesUploaded = (count == metadata.getTotalChunks())
+                ? metadata.getFileSize()
+                : Math.min((long) count * metadata.getChunkSize(), metadata.getFileSize());
 
-        double progress = (count * 100.0) / metadata.getTotalChunks();
+        double progress = Math.round(((count * 100.0) / metadata.getTotalChunks()) * 100.0) / 100.0;
 
         return new FileStatusResponse(
                 metadata.getId(),
@@ -241,79 +203,64 @@ public class FileUploadService {
                 count,
                 uploadedChunks,
                 nextChunkIndex,
-                estimatedUploadedBytes,
-                Math.round(progress * 100.0) / 100.0,
+                bytesUploaded,
+                progress,
                 metadata.getStatus(),
                 metadata.getCreatedAt(),
                 metadata.getUpdatedAt()
         );
     }
 
-    /**
-     * Streams the complete file out chunk by chunk to the HTTP response OutputStream.
-     * Memory usage stays under one chunk (~5MB) even for 10GB files!
-     */
     @Transactional(readOnly = true)
     public void streamFile(String fileId, OutputStream outputStream) throws IOException {
         FileMetadata metadata = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File not found with ID: " + fileId));
+                .orElseThrow(() -> new IllegalArgumentException("Upload not found: " + fileId));
 
         if (metadata.getStatus() != UploadStatus.COMPLETED) {
-            throw new IllegalStateException("File upload is not complete yet. Current status: " + metadata.getStatus());
+            throw new IllegalStateException("File is not fully uploaded. Status: " + metadata.getStatus());
         }
 
         int totalChunks = metadata.getTotalChunks();
-        log.info("Starting chunked stream for file '{}' (total {} chunks)...", metadata.getFileName(), totalChunks);
-
         for (int i = 0; i < totalChunks; i++) {
             final int chunkIdx = i;
             FileChunk chunk = fileChunkRepository.findByFileIdAndChunkIndex(fileId, i)
-                    .orElseThrow(() -> new IllegalStateException("Missing chunk " + chunkIdx + " for file " + fileId));
+                    .orElseThrow(() -> new IllegalStateException("Missing chunk " + chunkIdx));
 
             outputStream.write(chunk.getChunkData());
             outputStream.flush();
         }
-
-        log.info("Streaming completed successfully for file '{}'", metadata.getFileName());
     }
 
-    /**
-     * Lists all files with upload statistics.
-     */
     @Transactional(readOnly = true)
     public List<FileSummaryDto> listAllFiles() {
-        return fileMetadataRepository.findAllByOrderByCreatedAtDesc().stream().map(meta -> {
-            int chunkCount = fileChunkRepository.countByFileId(meta.getId());
-            return new FileSummaryDto(
-                    meta.getId(),
-                    meta.getFileIdentifier(),
-                    meta.getFileName(),
-                    meta.getFileSize(),
-                    meta.getContentType(),
-                    meta.getTotalChunks(),
-                    chunkCount,
-                    meta.getStatus(),
-                    meta.getCreatedAt(),
-                    meta.getUpdatedAt()
-            );
-        }).collect(Collectors.toList());
+        return fileMetadataRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(m -> new FileSummaryDto(
+                        m.getId(),
+                        m.getFileIdentifier(),
+                        m.getFileName(),
+                        m.getFileSize(),
+                        m.getContentType(),
+                        m.getTotalChunks(),
+                        fileChunkRepository.countByFileId(m.getId()),
+                        m.getStatus(),
+                        m.getCreatedAt(),
+                        m.getUpdatedAt()
+                ))
+                .toList();
     }
 
-    /**
-     * Deletes a file and all its chunks from MySQL.
-     */
     @Transactional
     public void deleteFile(String fileId) {
         FileMetadata metadata = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File not found with ID: " + fileId));
+                .orElseThrow(() -> new IllegalArgumentException("Upload not found: " + fileId));
         fileChunkRepository.deleteByFileId(fileId);
         fileMetadataRepository.delete(metadata);
-        log.info("Deleted file and chunks for fileId: {}", fileId);
+        log.info("Deleted file {}", fileId);
     }
 
     public FileMetadata getMetadata(String fileId) {
         return fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new IllegalArgumentException("File not found with ID: " + fileId));
+                .orElseThrow(() -> new IllegalArgumentException("Upload not found: " + fileId));
     }
 
     private int findNextMissingChunkIndex(List<Integer> uploadedChunks, int totalChunks) {
@@ -323,7 +270,6 @@ public class FileUploadService {
                 return i;
             }
         }
-        return -1; // All uploaded
+        return -1;
     }
 }
-

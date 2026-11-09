@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Huge File Resumable Uploader</title>
+    <title>File Uploader</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-container">
-        <!-- Minimalist Apple Header -->
         <header class="app-header">
             <div class="logo-area">
                 <div class="logo-icon">
@@ -20,38 +19,35 @@
                 </div>
                 <div>
                     <h1>File Uploader</h1>
-                    <p class="subtitle">Stream multi-gigabyte files (1GB – 10GB+) into MySQL with auto-resume</p>
+                    <p class="subtitle">Resumable chunked file upload into MySQL</p>
                 </div>
             </div>
             <div class="badge-status">
                 <span class="pulse-indicator"></span>
-                <span>MySQL Connected</span>
+                <span>Database Connected</span>
             </div>
         </header>
 
         <main class="main-content">
-            <!-- Upload Box Card -->
             <section class="card upload-card">
-                <h2>Upload Huge File</h2>
-                <p class="section-desc">Files are partitioned into chunks, streamed, and stored safely into MySQL database rows. If interrupted, upload seamlessly resumes from the last successfully saved chunk.</p>
+                <h2>Upload File</h2>
+                <p class="section-desc">Upload large files in chunks. If the connection drops, uploading resumes from where it stopped.</p>
 
-                <!-- Dropzone -->
                 <div class="dropzone" id="dropzone">
                     <input type="file" id="fileInput" class="file-input">
                     <div class="dropzone-content">
                         <div class="upload-icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#0071e3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#0071e3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
                                 <path d="M12 12v9"></path>
                                 <path d="m16 16-4-4-4 4"></path>
                             </svg>
                         </div>
-                        <p class="dropzone-prompt"><strong>Choose a file</strong> or drag and drop here</p>
-                        <p class="dropzone-hint">Supports massive files (1GB, 5GB, 10GB+). Never restarts from zero on connection drop.</p>
+                        <p class="dropzone-prompt"><strong>Choose a file</strong> or drag and drop</p>
+                        <p class="dropzone-hint">Supports files up to 10GB+</p>
                     </div>
                 </div>
 
-                <!-- Selected File Info -->
                 <div id="fileInfoPanel" class="file-info-panel hidden">
                     <div class="file-meta">
                         <span class="file-name" id="displayFileName">filename.dat</span>
@@ -59,17 +55,16 @@
                     </div>
 
                     <div class="chunk-config">
-                        <label for="chunkSizeSelect">Chunk Size:</label>
+                        <label for="chunkSizeSelect">Chunk size:</label>
                         <select id="chunkSizeSelect">
-                            <option value="2097152">2 MB (Faster resume granularity)</option>
-                            <option value="5242880" selected>5 MB (Recommended default)</option>
-                            <option value="10485760">10 MB (High speed for fast LAN)</option>
+                            <option value="2097152">2 MB</option>
+                            <option value="5242880" selected>5 MB (Default)</option>
+                            <option value="10485760">10 MB</option>
                             <option value="20971520">20 MB</option>
                         </select>
-                        <span id="totalChunksEstimated" class="total-chunks-hint">Estimated chunks: 0</span>
+                        <span id="totalChunksEstimated" class="total-chunks-hint"></span>
                     </div>
 
-                    <!-- Progress Section -->
                     <div id="progressSection" class="progress-section hidden">
                         <div class="progress-header">
                             <span id="statusLabel" class="status-badge status-idle">Ready</span>
@@ -79,37 +74,34 @@
                             <div id="progressBar" class="progress-bar" style="width: 0%;"></div>
                         </div>
                         <div class="progress-stats">
-                            <div><span class="stat-label">Transferred:</span> <span id="transferredBytesLabel">0 B</span> / <span id="totalBytesLabel">0 B</span></div>
+                            <div><span class="stat-label">Uploaded:</span> <span id="transferredBytesLabel">0 B</span> / <span id="totalBytesLabel">0 B</span></div>
                             <div><span class="stat-label">Chunks:</span> <span id="chunksProgressLabel">0 / 0</span></div>
                             <div><span class="stat-label">Speed:</span> <span id="speedLabel">0 MB/s</span></div>
                         </div>
                     </div>
 
-                    <!-- Controls -->
                     <div class="action-buttons">
                         <button id="startBtn" class="btn btn-primary">Start Upload</button>
-                        <button id="pauseBtn" class="btn btn-warning hidden">Pause / Simulate Failure</button>
-                        <button id="resumeBtn" class="btn btn-success hidden">Resume Upload</button>
+                        <button id="pauseBtn" class="btn btn-warning hidden">Pause</button>
+                        <button id="resumeBtn" class="btn btn-success hidden">Resume</button>
                         <button id="cancelBtn" class="btn btn-secondary hidden">Cancel</button>
                     </div>
 
-                    <!-- Logs / Diagnostics -->
                     <div class="log-container">
                         <div class="log-header">
-                            <span>Activity & Resume Diagnostics</span>
+                            <span>Activity</span>
                             <button id="clearLogBtn" class="btn-text">Clear</button>
                         </div>
                         <div id="logConsole" class="log-console">
-                            <div class="log-entry info">[System] Ready to upload. Select a file to begin.</div>
+                            <div class="log-entry info">Ready.</div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Uploaded Files Section -->
             <section class="card files-card">
                 <div class="card-header-flex">
-                    <h2>Files in MySQL Database</h2>
+                    <h2>Uploaded Files</h2>
                     <button id="refreshFilesBtn" class="btn btn-outline">Refresh</button>
                 </div>
                 <div class="table-container">
@@ -117,8 +109,8 @@
                         <thead>
                             <tr>
                                 <th>File Name</th>
-                                <th>Total Size</th>
-                                <th>Chunks in DB</th>
+                                <th>Size</th>
+                                <th>Chunks</th>
                                 <th>Status</th>
                                 <th>Uploaded At</th>
                                 <th>Actions</th>
@@ -135,7 +127,7 @@
         </main>
 
         <footer class="app-footer">
-            <p>Designed with Apple Minimalist Aesthetics &bull; Spring Boot 3.4 &bull; MySQL 8+ &bull; Chunked Relational Storage</p>
+            <p>&copy; 2026 Chunked File Uploader</p>
         </footer>
     </div>
 

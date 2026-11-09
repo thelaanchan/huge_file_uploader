@@ -6,7 +6,6 @@ import com.example.fileupload.service.FileUploadService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +19,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/files")
-@CrossOrigin(origins = "*") // Allows access from web client without CORS restrictions
+@CrossOrigin(origins = "*")
 public class FileUploadController {
 
     private final FileUploadService fileUploadService;
@@ -29,22 +28,11 @@ public class FileUploadController {
         this.fileUploadService = fileUploadService;
     }
 
-    /**
-     * 1. Initialize or resume upload
-     * Client sends file metadata (name, size, optional identifier).
-     * Server returns upload status and list of already uploaded chunks if resuming.
-     */
     @PostMapping("/init")
-    public ResponseEntity<FileInitResponse> initOrResumeUpload(@Valid @RequestBody FileInitRequest request) {
-        FileInitResponse response = fileUploadService.initOrResumeUpload(request);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<FileInitResponse> initOrResume(@Valid @RequestBody FileInitRequest request) {
+        return ResponseEntity.ok(fileUploadService.initOrResumeUpload(request));
     }
 
-    /**
-     * 2. Upload a single chunk
-     * Client uploads chunk bytes for a specific chunk index.
-     * Committed independently into MySQL.
-     */
     @PostMapping(value = "/{fileId}/chunks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ChunkUploadResponse> uploadChunk(
             @PathVariable String fileId,
@@ -52,27 +40,16 @@ public class FileUploadController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "checksum", required = false) String checksum) throws IOException {
 
-        ChunkUploadResponse response = fileUploadService.uploadChunk(fileId, chunkIndex, file, checksum);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(fileUploadService.uploadChunk(fileId, chunkIndex, file, checksum));
     }
 
-    /**
-     * 3. Check upload progress / status
-     * Client calls this to inspect which chunks were already received
-     * so it can resume after any connection failure.
-     */
     @GetMapping("/{fileId}/status")
-    public ResponseEntity<FileStatusResponse> getFileStatus(@PathVariable String fileId) {
-        FileStatusResponse status = fileUploadService.getFileStatus(fileId);
-        return ResponseEntity.ok(status);
+    public ResponseEntity<FileStatusResponse> getStatus(@PathVariable String fileId) {
+        return ResponseEntity.ok(fileUploadService.getFileStatus(fileId));
     }
 
-    /**
-     * 4. Stream and download complete file from MySQL
-     * Directly streams chunks in order without loading whole 10GB file into RAM.
-     */
     @GetMapping("/{fileId}/download")
-    public void downloadFile(@PathVariable String fileId, HttpServletResponse response) throws IOException {
+    public void download(@PathVariable String fileId, HttpServletResponse response) throws IOException {
         FileMetadata metadata = fileUploadService.getMetadata(fileId);
 
         String encodedFileName = URLEncoder.encode(metadata.getFileName(), StandardCharsets.UTF_8)
@@ -87,21 +64,14 @@ public class FileUploadController {
         }
     }
 
-    /**
-     * 5. List all files
-     */
     @GetMapping
-    public ResponseEntity<List<FileSummaryDto>> listAllFiles() {
+    public ResponseEntity<List<FileSummaryDto>> listFiles() {
         return ResponseEntity.ok(fileUploadService.listAllFiles());
     }
 
-    /**
-     * 6. Delete file and chunks
-     */
     @DeleteMapping("/{fileId}")
     public ResponseEntity<Void> deleteFile(@PathVariable String fileId) {
         fileUploadService.deleteFile(fileId);
         return ResponseEntity.noContent().build();
     }
 }
-

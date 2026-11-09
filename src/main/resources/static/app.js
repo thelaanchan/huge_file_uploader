@@ -1,16 +1,12 @@
-// State
 let selectedFile = null;
 let currentFileId = null;
-let chunkSize = 5242880; // 5 MB
+let chunkSize = 5242880;
 let totalChunks = 0;
 let isPaused = false;
 let isUploading = false;
 let abortController = null;
 let uploadedChunksSet = new Set();
-let uploadStartTime = null;
-let bytesUploadedSoFar = 0;
 
-// DOM Elements
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const fileInfoPanel = document.getElementById('fileInfoPanel');
@@ -35,7 +31,6 @@ const clearLogBtn = document.getElementById('clearLogBtn');
 const refreshFilesBtn = document.getElementById('refreshFilesBtn');
 const filesTableBody = document.getElementById('filesTableBody');
 
-// Event Listeners
 fileInput.addEventListener('change', (e) => handleFileSelected(e.target.files[0]));
 
 dropzone.addEventListener('dragover', (e) => {
@@ -63,12 +58,10 @@ cancelBtn.addEventListener('click', cancelUpload);
 clearLogBtn.addEventListener('click', () => logConsole.innerHTML = '');
 refreshFilesBtn.addEventListener('click', fetchFilesList);
 
-// Initialize
 fetchFilesList();
 
-// Functions
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -76,10 +69,10 @@ function formatBytes(bytes) {
 }
 
 function log(msg, type = 'info') {
-    const time = new Date().toLocaleTimeString();
     const entry = document.createElement('div');
     entry.className = `log-entry ${type}`;
-    entry.textContent = `[${time}] ${msg}`;
+    const timestamp = new Date().toLocaleTimeString();
+    entry.textContent = `[${timestamp}] ${msg}`;
     logConsole.appendChild(entry);
     logConsole.scrollTop = logConsole.scrollHeight;
 }
@@ -103,15 +96,14 @@ function handleFileSelected(file) {
     resetProgressUI();
     setUIState('READY');
 
-    log(`File selected: "${file.name}" (${formatBytes(file.size)})`, 'info');
+    log(`Selected ${file.name} (${formatBytes(file.size)})`);
 }
 
 function updateChunkEstimate() {
     if (!selectedFile) return;
     chunkSize = parseInt(chunkSizeSelect.value, 10);
-    totalChunks = Math.ceil(selectedFile.size / chunkSize);
-    if (totalChunks === 0) totalChunks = 1;
-    totalChunksEstimated.textContent = `Estimated chunks: ${totalChunks} (~${formatBytes(chunkSize)} each)`;
+    totalChunks = Math.max(1, Math.ceil(selectedFile.size / chunkSize));
+    totalChunksEstimated.textContent = `${totalChunks} chunks (~${formatBytes(chunkSize)} each)`;
 }
 
 function resetProgressUI() {
@@ -135,7 +127,7 @@ function setUIState(state) {
             chunkSizeSelect.disabled = false;
             break;
         case 'UPLOADING':
-            statusLabel.textContent = 'Uploading to MySQL';
+            statusLabel.textContent = 'Uploading';
             statusLabel.classList.add('status-uploading');
             startBtn.classList.add('hidden');
             pauseBtn.classList.remove('hidden');
@@ -144,7 +136,7 @@ function setUIState(state) {
             chunkSizeSelect.disabled = true;
             break;
         case 'PAUSED':
-            statusLabel.textContent = 'Paused / Interrupted';
+            statusLabel.textContent = 'Paused';
             statusLabel.classList.add('status-paused');
             startBtn.classList.add('hidden');
             pauseBtn.classList.add('hidden');
@@ -177,14 +169,10 @@ async function startUpload() {
     isPaused = false;
     isUploading = true;
     setUIState('UPLOADING');
-    uploadStartTime = Date.now();
 
     const fileIdentifier = `${selectedFile.name}_${selectedFile.size}_${selectedFile.lastModified}`;
 
-    log(`Initializing upload for file "${selectedFile.name}"...`, 'info');
-
     try {
-        // Step 1: Init or check existing upload for resume
         const initResponse = await fetch('/api/files/init', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -205,57 +193,54 @@ async function startUpload() {
         currentFileId = initData.fileId;
         chunkSize = initData.chunkSize;
         totalChunks = initData.totalChunks;
-
         uploadedChunksSet = new Set(initData.uploadedChunks || []);
 
         if (initData.resumed) {
-            log(`[RESUME DETECTED] Previous upload found in MySQL! ${uploadedChunksSet.size}/${totalChunks} chunks already saved.`, 'warning');
-            log(`Resuming upload directly from chunk index ${initData.nextChunkIndex}...`, 'info');
+            log(`Found existing upload (${uploadedChunksSet.size}/${totalChunks} chunks). Resuming from chunk ${initData.nextChunkIndex}`, 'warning');
         } else {
-            log(`Upload registered in MySQL with ID: ${currentFileId}. Starting chunk 0...`, 'info');
+            log(`Initialized upload ${currentFileId}`);
         }
 
         updateProgress();
 
         if (initData.status === 'COMPLETED' || uploadedChunksSet.size >= totalChunks) {
-            log('File is already 100% uploaded in database!', 'success');
+            log('File already completely uploaded', 'success');
             setUIState('COMPLETED');
             fetchFilesList();
             return;
         }
 
-        await uploadRemainingChunks();
+        await uploadChunks();
 
     } catch (err) {
-        log(`Upload initialization error: ${err.message}`, 'error');
+        log(`Error: ${err.message}`, 'error');
         setUIState('FAILED');
     }
 }
 
-async function uploadRemainingChunks() {
+async function uploadChunks() {
     abortController = new AbortController();
 
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    for (let i = 0; i < totalChunks; i++) {
         if (isPaused) {
-            log(`Upload halted at chunk ${chunkIndex}. Data up to chunk ${chunkIndex - 1} is safely in MySQL.`, 'warning');
+            log(`Paused at chunk ${i}`, 'warning');
             setUIState('PAUSED');
             return;
         }
 
-        // Skip chunks already persisted in MySQL
-        if (uploadedChunksSet.has(chunkIndex)) {
+        if (uploadedChunksSet.has(i)) {
             continue;
         }
 
-        const start = chunkIndex * chunkSize;
+        const start = i * chunkSize;
         const end = Math.min(start + chunkSize, selectedFile.size);
         const chunkBlob = selectedFile.slice(start, end);
 
         const formData = new FormData();
-        formData.append('chunkIndex', chunkIndex);
-        formData.append('file', chunkBlob, `chunk_${chunkIndex}.bin`);
+        formData.append('chunkIndex', i);
+        formData.append('file', chunkBlob, `chunk_${i}.bin`);
 
-        const chunkStartTime = Date.now();
+        const t0 = Date.now();
 
         try {
             const resp = await fetch(`/api/files/${currentFileId}/chunks`, {
@@ -265,24 +250,23 @@ async function uploadRemainingChunks() {
             });
 
             if (!resp.ok) {
-                const errText = await resp.text();
-                throw new Error(`Server returned ${resp.status}: ${errText}`);
+                const text = await resp.text();
+                throw new Error(`HTTP ${resp.status}: ${text}`);
             }
 
             const data = await resp.json();
-            uploadedChunksSet.add(chunkIndex);
+            uploadedChunksSet.add(i);
 
-            // Compute speed
-            const chunkDurationSec = (Date.now() - chunkStartTime) / 1000;
-            if (chunkDurationSec > 0) {
-                const speedMBs = ((chunkBlob.size / 1024 / 1024) / chunkDurationSec).toFixed(2);
-                speedLabel.textContent = `${speedMBs} MB/s`;
+            const dt = (Date.now() - t0) / 1000;
+            if (dt > 0) {
+                const speed = ((chunkBlob.size / 1024 / 1024) / dt).toFixed(2);
+                speedLabel.textContent = `${speed} MB/s`;
             }
 
             updateProgress();
 
             if (data.fileCompleted) {
-                log(`Success! All ${totalChunks} chunks stored in MySQL. File fully uploaded!`, 'success');
+                log('Upload completed successfully', 'success');
                 setUIState('COMPLETED');
                 fetchFilesList();
                 return;
@@ -290,9 +274,9 @@ async function uploadRemainingChunks() {
 
         } catch (err) {
             if (err.name === 'AbortError') {
-                log(`Chunk ${chunkIndex} transfer aborted.`, 'warning');
+                log('Transfer paused', 'warning');
             } else {
-                log(`Error uploading chunk ${chunkIndex}: ${err.message}. Ready to resume.`, 'error');
+                log(`Chunk ${i} failed: ${err.message}`, 'error');
                 setUIState('PAUSED');
             }
             return;
@@ -317,7 +301,6 @@ function pauseUpload() {
     if (abortController) {
         abortController.abort();
     }
-    log('[PAUSE TRIGGERED] Network drop simulated / upload paused.', 'warning');
     setUIState('PAUSED');
 }
 
@@ -327,30 +310,27 @@ async function resumeUpload() {
         return;
     }
 
-    log(`Querying MySQL for current status of file "${selectedFile.name}"...`, 'info');
     setUIState('UPLOADING');
     isPaused = false;
 
     try {
         const resp = await fetch(`/api/files/${currentFileId}/status`);
         if (!resp.ok) {
-            throw new Error(`Failed to query file status: ${resp.statusText}`);
+            throw new Error(`Status check failed: ${resp.statusText}`);
         }
 
-        const statusData = await resp.json();
-        uploadedChunksSet = new Set(statusData.uploadedChunks || []);
-
-        log(`[RESUMING] MySQL has ${uploadedChunksSet.size}/${totalChunks} chunks. Next chunk: ${statusData.nextChunkIndex}`, 'info');
+        const data = await resp.json();
+        uploadedChunksSet = new Set(data.uploadedChunks || []);
+        log(`Resuming with ${uploadedChunksSet.size}/${totalChunks} chunks in database`);
         updateProgress();
 
-        if (statusData.status === 'COMPLETED' || uploadedChunksSet.size >= totalChunks) {
-            log('File already completed in MySQL!', 'success');
+        if (data.status === 'COMPLETED' || uploadedChunksSet.size >= totalChunks) {
             setUIState('COMPLETED');
             fetchFilesList();
             return;
         }
 
-        await uploadRemainingChunks();
+        await uploadChunks();
 
     } catch (err) {
         log(`Resume failed: ${err.message}`, 'error');
@@ -365,15 +345,12 @@ function cancelUpload() {
     }
     resetProgressUI();
     setUIState('READY');
-    log('Upload cancelled by user.', 'info');
 }
 
-// Fetch list of files from MySQL
 async function fetchFilesList() {
     try {
         const resp = await fetch('/api/files');
         if (!resp.ok) return;
-
         const files = await resp.json();
         renderFilesTable(files);
     } catch (err) {
@@ -412,18 +389,17 @@ function renderFilesTable(files) {
 }
 
 async function deleteFileRecord(fileId) {
-    if (!confirm('Are you sure you want to delete this file and all its chunks from MySQL?')) return;
+    if (!confirm('Delete this file from database?')) return;
 
     try {
         const resp = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
         if (resp.ok) {
-            log(`Deleted file ${fileId} from MySQL.`, 'info');
             fetchFilesList();
         } else {
             alert('Failed to delete file');
         }
     } catch (err) {
-        alert('Error deleting file: ' + err.message);
+        alert('Error: ' + err.message);
     }
 }
 
@@ -431,4 +407,3 @@ function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
